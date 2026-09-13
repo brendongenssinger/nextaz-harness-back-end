@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../NextAZ.Harness.Application/NextAZ.Harness.Application.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Contracts/NextAZ.Harness.Contracts.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Infrastructure/NextAZ.Harness.Infrastructure.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Providers/NextAZ.Harness.Providers.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Runtime/NextAZ.Harness.Runtime.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Observability/NextAZ.Harness.Observability.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.20" />
+  </ItemGroup>
+
+</Project>

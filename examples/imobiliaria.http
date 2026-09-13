@@ -1,0 +1,20 @@
+@harness = http://localhost:5088
+@token = REPLACE_WITH_TENANT_SCOPED_ACCESS_TOKEN
+@tenantId = 11111111-1111-1111-1111-111111111111
+@atendimentoId = 33333333-3333-3333-3333-333333333333
+
+POST {{harness}}/api/v1/imobiliaria/atendimentos
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tenantId": "{{tenantId}}",
+  "channel": "whatsapp",
+  "operation": "imobiliaria.atendimento",
+  "content": "Quero conhecer apartamentos de dois quartos no Centro.",
+  "correlationId": "mensagem-externa-001",
+  "metadata": {
+    "source": "nextaz-imobiliaria",
+    "atendimentoId": "{{atendimentoId}}"
+  }
+}

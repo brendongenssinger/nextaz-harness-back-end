@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net8.0": {
+      "nextaz.harness.contracts": {
+        "type": "Project"
+      },
+      "nextaz.harness.domain": {
+        "type": "Project"
+      }
+    }
+  }
+}

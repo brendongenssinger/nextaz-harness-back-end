@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../NextAZ.Harness.Runtime/NextAZ.Harness.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>

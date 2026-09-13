@@ -1,0 +1,18 @@
+@baseUrl = http://localhost:5088
+@accessToken = REPLACE_WITH_A_VALID_NEXTAZ_AUTH_ACCESS_TOKEN
+
+### Health da simulação
+GET {{baseUrl}}/health/ready
+
+### Exige token real com contrato Harness; veja README
+POST {{baseUrl}}/api/v1/executions
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "channel": "api",
+  "operation": "atendimento",
+  "content": "Validar o fluxo do Harness",
+  "correlationId": "local-demo-001"
+}

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../NextAZ.Harness.Application/NextAZ.Harness.Application.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Domain/NextAZ.Harness.Domain.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Contracts/NextAZ.Harness.Contracts.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Runtime/NextAZ.Harness.Runtime.csproj" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../NextAZ.Harness.Domain/NextAZ.Harness.Domain.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Contracts/NextAZ.Harness.Contracts.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Runtime/NextAZ.Harness.Runtime.csproj" />
+    <PackageReference Include="MediatR" Version="12.4.1" />
+  </ItemGroup>
+
+</Project>

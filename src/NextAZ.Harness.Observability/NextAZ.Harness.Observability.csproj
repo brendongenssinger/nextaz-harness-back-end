@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../NextAZ.Harness.Application/NextAZ.Harness.Application.csproj" />
+    <ProjectReference Include="../NextAZ.Harness.Domain/NextAZ.Harness.Domain.csproj" />
+    
+  </ItemGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
+</Project>
