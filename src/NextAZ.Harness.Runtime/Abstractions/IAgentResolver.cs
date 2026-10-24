@@ -1,5 +1,7 @@
 namespace NextAZ.Harness.Runtime.Abstractions;
 public interface IAgentResolver
 {
-    Task<AgentId?> ResolveAsync(Guid tenantId, string channel, string operation, CancellationToken cancellationToken);
+    Task<AgentRouteTarget?> ResolveAsync(Guid tenantId, string channel, string operation, CancellationToken cancellationToken);
 }
+
+public sealed record AgentRouteTarget(AgentId AgentId, AgentVersion? AgentVersion);

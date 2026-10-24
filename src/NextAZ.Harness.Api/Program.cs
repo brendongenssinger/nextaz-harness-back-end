@@ -4,6 +4,7 @@ using NextAZ.Harness.Api.Configuration;
 using NextAZ.Harness.Infrastructure.Persistence;
 using NextAZ.Harness.Api.Security;
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddHarnessKeyVault();
 builder.Logging.ClearProviders().AddJsonConsole();
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 65536);
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -31,7 +32,11 @@ app.MapGet("/health/ready", async (HarnessRuntimeDescriptor runtime, IServicePro
         await using var scope = services.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<HarnessDbContext>>();
         await using var db = await factory.CreateDbContextAsync(cancellationToken);
-        try { ready = await db.Database.CanConnectAsync(cancellationToken); }
+        try
+        {
+            ready = await db.Database.CanConnectAsync(cancellationToken) &&
+                !(await db.Database.GetPendingMigrationsAsync(cancellationToken)).Any();
+        }
         catch { ready = false; }
     }
     var body = new { status = ready ? "Healthy" : "Unhealthy", mode = runtime.Mode,

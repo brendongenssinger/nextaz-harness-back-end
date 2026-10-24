@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.11.0" />
     <ProjectReference Include="../NextAZ.Harness.Application/NextAZ.Harness.Application.csproj" />
     <ProjectReference Include="../NextAZ.Harness.Contracts/NextAZ.Harness.Contracts.csproj" />
     <ProjectReference Include="../NextAZ.Harness.Infrastructure/NextAZ.Harness.Infrastructure.csproj" />

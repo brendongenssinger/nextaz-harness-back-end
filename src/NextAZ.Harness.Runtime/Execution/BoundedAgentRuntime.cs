@@ -76,7 +76,7 @@ public sealed class BoundedAgentRuntime(IEnumerable<IModelProvider> providers, I
                 var input = new ModelExecutionRequest(request.Context, route, request.Agent.Objective,
                     request.Configuration.Instructions, request.Content, request.Memory, request.Tools,
                     results, request.Configuration.Limits.MaxOutputTokens, request.Messages,
-                    request.ResourceReferences);
+                    request.ResourceReferences, request.Attachments);
                 return (route, await provider.ExecuteAsync(input, timeout.Token).WaitAsync(timeout.Token));
             }
             catch (ModelProviderUnavailableException)

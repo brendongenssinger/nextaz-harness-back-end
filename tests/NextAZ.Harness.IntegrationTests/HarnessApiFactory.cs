@@ -27,16 +27,24 @@ public sealed class HarnessApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Harness:Imobiliaria:Enabled", "true");
         builder.UseSetting("Harness:Imobiliaria:TenantIds:0", TenantA.ToString());
         builder.UseSetting("Harness:Imobiliaria:TenantIds:1", TenantB.ToString());
+        builder.UseSetting("Harness:FuncionarioDigital:Receipts:Enabled", "true");
+        builder.UseSetting("Harness:FuncionarioDigital:Receipts:TenantIds:0", TenantA.ToString());
+        builder.UseSetting("Harness:FuncionarioDigital:Receipts:TenantIds:1", TenantB.ToString());
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Authentication:Authority"] = Issuer,
             ["Authentication:Audience"] = "nextaz-harness-api",
+            ["Authentication:FuncionarioDigitalReceiptClientIds:0"] = "nextaz-funcionario-digital-harness",
+            ["Authentication:FuncionarioDigitalReceiptClientIds:1"] = "nextaz-funcionario-digital-harness-tenant-b",
             ["Harness:Simulation:Enabled"] = "true",
             ["Harness:Simulation:TenantIds:0"] = TenantA.ToString(),
             ["Harness:Simulation:TenantIds:1"] = TenantB.ToString(),
             ["Harness:Imobiliaria:Enabled"] = "true",
             ["Harness:Imobiliaria:TenantIds:0"] = TenantA.ToString(),
-            ["Harness:Imobiliaria:TenantIds:1"] = TenantB.ToString()
+            ["Harness:Imobiliaria:TenantIds:1"] = TenantB.ToString(),
+            ["Harness:FuncionarioDigital:Receipts:Enabled"] = "true",
+            ["Harness:FuncionarioDigital:Receipts:TenantIds:0"] = TenantA.ToString(),
+            ["Harness:FuncionarioDigital:Receipts:TenantIds:1"] = TenantB.ToString()
         }));
         builder.ConfigureTestServices(services => services.AddDataProtection().UseEphemeralDataProtectionProvider());
         builder.ConfigureTestServices(services =>

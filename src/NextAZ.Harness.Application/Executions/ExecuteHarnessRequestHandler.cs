@@ -29,11 +29,19 @@ public sealed class ExecuteHarnessRequestHandler(ICurrentTenant tenant, IAgentRe
 
         var previous = await executions.GetByCorrelationAsync(tenant.TenantId, request.Operation,
             request.CorrelationId, cancellationToken);
-        var agentId = command.Profile?.Agent.AgentId ?? previous?.Context.AgentId ??
-            await resolver.ResolveAsync(tenant.TenantId, request.Channel, request.Operation, cancellationToken);
+        AgentRouteTarget? route = null;
+        var agentId = command.Profile?.Agent.AgentId ?? previous?.Context.AgentId;
+        if (agentId is null)
+        {
+            route = await resolver.ResolveAsync(
+                tenant.TenantId, request.Channel, request.Operation, cancellationToken);
+            agentId = route?.AgentId;
+        }
         if (agentId is null) return Reject("agent_not_found");
         var agent = command.Profile?.Agent ?? await agents.GetAsync(agentId, cancellationToken);
         if (agent is null) return Reject("agent_not_found");
+        if (route?.AgentVersion is not null && route.AgentVersion != agent.Version)
+            return Reject("agent_version_unavailable");
         var configuration = command.Profile?.Configuration ??
             await configurations.GetAsync(tenant.TenantId, agentId, cancellationToken);
         if (configuration is null) return Reject("tenant_agent_not_configured");
@@ -97,7 +105,7 @@ public sealed class ExecuteHarnessRequestHandler(ICurrentTenant tenant, IAgentRe
             Step("tools.authorized"); Step("runtime.started");
             var result = await runtime.ExecuteAsync(new(context, agent, configuration,
                 tenant.Permissions, request.Content, memoryContext, routes, allowedTools, Step,
-                command.Profile?.Messages, command.ResourceReferences), timeout.Token).WaitAsync(timeout.Token);
+                command.Profile?.Messages, command.ResourceReferences, request.Attachments), timeout.Token).WaitAsync(timeout.Token);
             content = result.Content;
             snapshot = snapshot with { Status = AgentExecutionStatus.Completed, ProviderId = result.ProviderId,
                 ModelId = result.ModelId, InputTokens = result.InputTokens, OutputTokens = result.OutputTokens,
@@ -155,9 +163,35 @@ public sealed class ExecuteHarnessRequestHandler(ICurrentTenant tenant, IAgentRe
             snapshot.EstimatedCost);
     private static bool IsValid(HarnessRequest r) =>
         !string.IsNullOrWhiteSpace(r.Content) && r.Content.Length <= 16000 &&
-        ValidIdentifier(r.Channel, 64) && ValidIdentifier(r.Operation, 120) && ValidIdentifier(r.CorrelationId, 128) &&
+        ValidRouteIdentifier(r.Channel, 32) && ValidRouteIdentifier(r.Operation, 120) &&
+        ValidIdentifier(r.CorrelationId, 128) &&
         (r.Metadata is null || (r.Metadata.Count <= 20 &&
-            r.Metadata.All(p => ValidIdentifier(p.Key, 64) && p.Value is not null && p.Value.Length <= 1024)));
+            r.Metadata.All(p => ValidIdentifier(p.Key, 64) && p.Value is not null && p.Value.Length <= 1024))) &&
+        ValidAttachments(r.Attachments);
+
+    private static bool ValidAttachments(IReadOnlyList<HarnessAttachment>? attachments)
+    {
+        if (attachments is null) return true;
+        if (attachments.Count is < 1 or > 1) return false;
+        var attachment = attachments[0];
+        if (attachment.MediaType is not ("image/jpeg" or "image/png" or "image/webp" or "application/pdf") ||
+            string.IsNullOrWhiteSpace(attachment.FileName) || attachment.FileName.Length > 120 ||
+            attachment.FileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            string.IsNullOrWhiteSpace(attachment.Base64Data))
+            return false;
+        try
+        {
+            return Convert.FromBase64String(attachment.Base64Data).Length <= 20 * 1024 * 1024;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
     private static bool ValidIdentifier(string? value, int max) =>
         !string.IsNullOrWhiteSpace(value) && value.Length <= max && Regex.IsMatch(value, @"^[a-zA-Z0-9._:-]+$");
+
+    private static bool ValidRouteIdentifier(string? value, int max) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= max &&
+        Regex.IsMatch(value, @"^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$");
 }

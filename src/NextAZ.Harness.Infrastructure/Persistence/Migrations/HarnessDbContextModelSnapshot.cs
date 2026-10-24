@@ -23,6 +23,148 @@ namespace NextAZ.Harness.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.AgentRouteBindingAuditRecord", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("actor");
+
+                    b.Property<string>("AgentId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("agent_id");
+
+                    b.Property<int>("AgentVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_version");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("channel");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("operation");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer")
+                        .HasColumnName("revision");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("EventId")
+                        .HasName("pk_agent_route_binding_events");
+
+                    b.HasIndex("TenantId", "Channel", "Operation", "Revision")
+                        .IsUnique()
+                        .HasDatabaseName("ux_agent_route_events_tenant_route_revision");
+
+                    b.ToTable("agent_route_binding_events", "harness", t =>
+                        {
+                            t.HasCheckConstraint("ck_agent_route_events_actor", "btrim(actor) <> ''");
+
+                            t.HasCheckConstraint("ck_agent_route_events_agent_id", "agent_id ~ '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$'");
+
+                            t.HasCheckConstraint("ck_agent_route_events_agent_version", "agent_version > 0");
+
+                            t.HasCheckConstraint("ck_agent_route_events_channel", "channel ~ '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$'");
+
+                            t.HasCheckConstraint("ck_agent_route_events_operation", "operation ~ '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$'");
+
+                            t.HasCheckConstraint("ck_agent_route_events_revision", "revision > 0");
+
+                            t.HasCheckConstraint("ck_agent_route_events_tenant", "tenant_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+                        });
+                });
+
+            modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.AgentRouteBindingRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Channel")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("channel");
+
+                    b.Property<string>("Operation")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("operation");
+
+                    b.Property<string>("AgentId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("agent_id");
+
+                    b.Property<int>("AgentVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_version");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("revision");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("TenantId", "Channel", "Operation")
+                        .HasName("pk_agent_route_bindings");
+
+                    b.ToTable("agent_route_bindings", "harness", t =>
+                        {
+                            t.HasCheckConstraint("ck_agent_route_bindings_agent_id", "agent_id ~ '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$'");
+
+                            t.HasCheckConstraint("ck_agent_route_bindings_agent_version", "agent_version > 0");
+
+                            t.HasCheckConstraint("ck_agent_route_bindings_channel", "channel ~ '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$'");
+
+                            t.HasCheckConstraint("ck_agent_route_bindings_operation", "operation ~ '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$'");
+
+                            t.HasCheckConstraint("ck_agent_route_bindings_revision", "revision > 0");
+
+                            t.HasCheckConstraint("ck_agent_route_bindings_tenant", "tenant_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("ck_agent_route_bindings_updated_by", "btrim(updated_by) <> ''");
+                        });
+                });
+
             modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.ExecutionRecord", b =>
                 {
                     b.Property<Guid>("TenantId")

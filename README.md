@@ -52,7 +52,18 @@ Use `-ApplyMigrations` somente quando quiser aplicar as migrations no banco loca
 - `GET /health/ready`: informa modo, persistência, provider e mensageria; em PostgreSQL também verifica conectividade.
 - `POST /api/v1/imobiliaria/atendimentos`: executa o atendimento especializado.
 - `GET /api/v1/imobiliaria/atendimentos/{executionId}`: consulta somente uma execução do mesmo tenant e agente.
+- `POST /api/v1/funcionario-digital/receipts`: propõe a leitura estruturada de um recibo para validação pelo Funcionário Digital.
+- `GET /api/v1/funcionario-digital/receipts/{executionId}`: consulta somente uma execução de recibo do mesmo tenant e agente.
+- `GET /api/v1/admin/tenants/{tenantId}/overview`: lista agentes publicados e vínculos operacionais do tenant.
+- `PUT /api/v1/admin/tenants/{tenantId}/routes`: cria ou atualiza, com revisão otimista e auditoria, o vínculo `canal + operação -> agente + versão`.
 - `POST /api/v1/executions`: execução administrativa do Harness, inacessível aos tokens do produto Imobiliária.
+
+O roteamento operacional é resolvido por `tenant + canal + operação`. Para recibos,
+a chave é `tenant + api + funcionario-digital.recibo`. Um vínculo persistido ativo
+fixa também a versão publicada do agente; se ela não estiver mais disponível, a
+execução falha fechada. Um vínculo persistido desativado bloqueia a rota. A configuração
+estática permanece apenas como fallback de migração enquanto não existir vínculo para
+aquela chave.
 
 ## Contrato de autenticação imobiliária
 
@@ -64,6 +75,13 @@ O JWT usa audience `nextaz-harness-api` e exatamente um `tenant_id` GUID.
 
 O worker adquire o token por `client_credentials` para o tenant em processamento e pode mantê-lo somente em cache até perto da expiração. Tokens humanos e tokens de serviço não pertencem ao banco nem ao outbox.
 
+Para recibos, o JWT também usa audience `nextaz-harness-api`, exatamente um
+`tenant_id`, `product=funcionario-digital`, scope `funcionario-digital.receipts`
+e role `Service`. `sub`, `client_id` e `azp` devem ser iguais a um cliente M2M
+presente em `Authentication:FuncionarioDigitalReceiptClientIds`. O Harness só
+propõe a estrutura; o Funcionário Digital valida o emissor, os totais e a
+evidência literal de pagamento antes de aplicar qualquer efeito.
+
 ## Configuração operacional
 
 Segredos e valores de ambiente ficam fora do repositório:
@@ -71,12 +89,14 @@ Segredos e valores de ambiente ficam fora do repositório:
 ```text
 Authentication__Authority
 Authentication__Audience=nextaz-harness-api
+Authentication__FuncionarioDigitalReceiptClientIds__0=<client-id-m2m-do-tenant>
 ConnectionStrings__Harness
 Harness__Persistence__Provider=PostgreSql
+Harness__KeyVault__Enabled=true
+Harness__KeyVault__VaultUri=https://nextaz-kv-prod-70bec273.vault.azure.net/
 Harness__Providers__OpenAI__Enabled=true
 Harness__Providers__OpenAI__Endpoint=https://api.openai.com/v1/
 Harness__Providers__OpenAI__ApiKey
-Harness__Providers__OpenAI__Model
 Harness__Imobiliaria__Enabled=true
 Harness__Imobiliaria__TenantIds__0=<tenant-guid>
 Harness__Imobiliaria__Integration__Enabled=true
@@ -85,7 +105,34 @@ Harness__Imobiliaria__Integration__TokenEndpoint
 Harness__Imobiliaria__Integration__ClientId=nextaz-harness
 Harness__Imobiliaria__Integration__ClientSecret
 Harness__Imobiliaria__Integration__Scope=imobiliaria.tools
+Harness__FuncionarioDigital__Receipts__Enabled=true
+Harness__FuncionarioDigital__Receipts__TenantIds__0=<tenant-guid>
+Harness__FuncionarioDigital__Receipts__Instructions=
 ```
+
+### Modelo OpenAI centralizado no Azure Key Vault
+
+O runtime .NET consulta diretamente o Azure Key Vault durante a inicialização e
+carrega somente o segredo `Harness--Providers--OpenAI--Model`. Esse nome é mapeado
+para `Harness:Providers:OpenAI:Model` e prevalece sobre valores locais. O modelo
+não deve ser repetido no `.env.production`.
+
+```powershell
+# Primeiro cadastre o modelo explicitamente aprovado; não há valor padrão.
+az keyvault secret set --vault-name nextaz-kv-prod-70bec273 `
+  --name Harness--Providers--OpenAI--Model --value '<modelo-aprovado>'
+```
+
+Na VPS, o container usa `DefaultAzureCredential`. Como a HostGator não possui
+Managed Identity, informe ao container as credenciais de um service principal
+dedicado por `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` e `AZURE_CLIENT_SECRET`. Conceda
+somente `Key Vault Secrets User`, preferencialmente no escopo desse segredo. Não
+grave essas credenciais no Git, na imagem Docker ou em logs.
+
+Com OpenAI habilitado, Production recusa iniciar sem `Harness:KeyVault:Enabled`.
+Falha de autenticação, cofre inacessível ou segredo ausente também interrompe o
+startup sem revelar o valor. O custo adicional estimado permanece **R$ 0/mês**
+no volume atual de operações do cofre.
 
 Os canais aceitos pelo agente são `web`, `api`, `whatsapp`, `instagram`, `facebook` e `telegram`. A allowlist de tenants é obrigatória. O startup em Production recusa simulação, persistência volátil, provider ausente ou integração imobiliária ausente.
 

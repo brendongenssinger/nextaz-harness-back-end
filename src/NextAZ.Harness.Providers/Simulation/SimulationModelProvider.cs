@@ -12,6 +12,15 @@ public sealed class SimulationModelProvider : IModelProvider
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (request.Route.ModelId != "deterministic-v1") throw new ModelProviderUnavailableException();
+        if (request.Context.Operation == "funcionario-digital.recibo")
+            return Task.FromResult(new ModelExecutionResult(
+                "{\"isSale\":true,\"confidence\":0.99,\"issuerName\":\"EMPRESA TESTE\",\"issuerTaxId\":null," +
+                "\"saleNumber\":\"SIM-1\",\"customerName\":\"Cliente Teste\",\"customerPhone\":null," +
+                "\"customerTaxId\":null,\"customerEmail\":null,\"soldAt\":null,\"total\":10.0," +
+                "\"discount\":0,\"surcharge\":0,\"currency\":\"BRL\",\"paymentMethod\":\"PIX\"," +
+                "\"items\":[{\"productId\":\"SIM-1\",\"productName\":\"Produto teste\",\"quantity\":1," +
+                "\"unitPrice\":10.0,\"total\":10.0}],\"extractedText\":\"VALOR PAGO R$ 10,00\"}",
+                Array.Empty<ToolCall>(), 0, 0, 0));
         var imobiliariaContext = new ToolId("imobiliaria.contexto-atendimento");
         if (request.ToolResults.Count == 0 && request.Tools.Any(t => t.ToolId == imobiliariaContext) &&
             request.ResourceReferences?.TryGetValue("atendimentoId", out var atendimentoId) == true)

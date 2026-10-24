@@ -33,8 +33,14 @@ public static class HarnessSecurity
                 .RequireRole("HarnessAdmin", "HarnessOperator"));
             options.AddPolicy("HarnessRead", policy => HarnessPolicy(policy)
                 .RequireRole("HarnessAdmin", "HarnessOperator", "HarnessViewer"));
+            options.AddPolicy("HarnessManage", policy => HarnessPolicy(policy)
+                .RequireRole("HarnessAdmin"));
             options.AddPolicy("ImobiliariaExecute", ImobiliariaPolicy);
             options.AddPolicy("ImobiliariaRead", ImobiliariaPolicy);
+            options.AddPolicy("FuncionarioDigitalReceiptsExecute",
+                policy => FuncionarioDigitalReceiptsPolicy(policy, configuration));
+            options.AddPolicy("FuncionarioDigitalReceiptsRead",
+                policy => FuncionarioDigitalReceiptsPolicy(policy, configuration));
             options.FallbackPolicy = TenantPolicy(new AuthorizationPolicyBuilder()).Build();
         });
         return services;
@@ -44,6 +50,12 @@ public static class HarnessSecurity
     private static void ImobiliariaPolicy(AuthorizationPolicyBuilder policy) =>
         TenantPolicy(policy).RequireAssertion(context => HasSingleClaim(context.User, "product", "nextaz-imobiliaria") &&
             HasImobiliariaServiceAccess(context.User));
+    private static void FuncionarioDigitalReceiptsPolicy(
+        AuthorizationPolicyBuilder policy,
+        IConfiguration configuration) =>
+        TenantPolicy(policy).RequireAssertion(context =>
+            HasSingleClaim(context.User, "product", "funcionario-digital") &&
+            HasFuncionarioDigitalReceiptsServiceAccess(context.User, configuration));
     private static AuthorizationPolicyBuilder ProductPolicy(AuthorizationPolicyBuilder policy,
         string product, string scope) => TenantPolicy(policy)
             .RequireAssertion(context => HasSingleClaim(context.User, "product", product))
@@ -62,6 +74,19 @@ public static class HarnessSecurity
         HasSingleClaim(user, "sub", "nextaz-imobiliaria-harness") &&
         HasSingleClaim(user, "client_id", "nextaz-imobiliaria-harness") &&
         HasSingleClaim(user, "azp", "nextaz-imobiliaria-harness");
+    internal static bool HasFuncionarioDigitalReceiptsServiceAccess(
+        System.Security.Claims.ClaimsPrincipal user,
+        IConfiguration configuration)
+    {
+        var allowed = configuration.GetSection("Authentication:FuncionarioDigitalReceiptClientIds")
+            .Get<string[]>() ?? [];
+        var clients = user.FindAll("client_id").ToArray();
+        if (!user.IsInRole("Service") || !HasScope(user, "funcionario-digital.receipts") ||
+            clients.Length != 1 || !allowed.Contains(clients[0].Value, StringComparer.Ordinal))
+            return false;
+        return HasSingleClaim(user, "sub", clients[0].Value) &&
+            HasSingleClaim(user, "azp", clients[0].Value);
+    }
     private static bool HasSingleClaim(System.Security.Claims.ClaimsPrincipal user, string type, string value)
     {
         var claims = user.FindAll(type).ToArray();

@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using NextAZ.Harness.Domain.Agents;
+using NextAZ.Harness.Contracts.Executions;
 using NextAZ.Harness.Domain.Executions;
 using NextAZ.Harness.Domain.Tools;
 using NextAZ.Harness.Providers.OpenAI;
@@ -105,6 +106,31 @@ public sealed class OpenAiResponsesProviderTests
         await Provider(handler).ExecuteAsync(Request() with { Tools = [] }, default);
         using var body = JsonDocument.Parse(handler.Body!);
         Assert.False(body.RootElement.TryGetProperty("tools", out _));
+    }
+    [Theory]
+    [InlineData("image/png", "receipt.png", "input_image", "image_url")]
+    [InlineData("application/pdf", "receipt.pdf", "input_file", "file_data")]
+    public async Task SendsReceiptAttachmentAsResponsesMultimodalInput(
+        string mediaType, string fileName, string expectedType, string dataProperty)
+    {
+        var handler = new CapturingHandler((_, _) => Json(HttpStatusCode.OK,
+            "{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}"));
+        var encoded = Convert.ToBase64String([1, 2, 3]);
+        var request = Request() with
+        {
+            Tools = [],
+            Attachments = [new HarnessAttachment(mediaType, fileName, encoded)]
+        };
+
+        await Provider(handler).ExecuteAsync(request, default);
+
+        using var body = JsonDocument.Parse(handler.Body!);
+        var input = body.RootElement.GetProperty("input");
+        var userContent = input.EnumerateArray().Last().GetProperty("content");
+        var attachment = userContent.EnumerateArray().Single(item =>
+            item.GetProperty("type").GetString() == expectedType);
+        Assert.Equal($"data:{mediaType};base64,{encoded}", attachment.GetProperty(dataProperty).GetString());
+        if (expectedType == "input_file") Assert.Equal(fileName, attachment.GetProperty("filename").GetString());
     }
     [Fact] public async Task NetworkFailureAllowsRouterFallback()
     {

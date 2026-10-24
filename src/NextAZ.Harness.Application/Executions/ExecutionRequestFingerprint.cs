@@ -32,6 +32,23 @@ internal static class ExecutionRequestFingerprint
         foreach (var pair in (resourceReferences ?? new Dictionary<string, string>())
             .OrderBy(x => x.Key, StringComparer.Ordinal))
             Add("resource:" + pair.Key, pair.Value);
+        Add("attachment-count", request.Attachments?.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (request.Attachments is not null)
+            for (var index = 0; index < request.Attachments.Count; index++)
+            {
+                var attachment = request.Attachments[index];
+                Add($"attachment:{index}:media-type", attachment.MediaType);
+                Add($"attachment:{index}:file-name", attachment.FileName);
+                try
+                {
+                    Add($"attachment:{index}:sha256", Convert.ToHexString(
+                        SHA256.HashData(Convert.FromBase64String(attachment.Base64Data))).ToLowerInvariant());
+                }
+                catch (FormatException)
+                {
+                    Add($"attachment:{index}:sha256", "invalid");
+                }
+            }
         if (messages is not null)
             for (var index = 0; index < messages.Count; index++)
             {

@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using NextAZ.Harness.Application.Abstractions;
 namespace NextAZ.Harness.Api.Security;
-public sealed class HttpCurrentTenant(IHttpContextAccessor accessor) : ICurrentTenant
+public sealed class HttpCurrentTenant(IHttpContextAccessor accessor, IConfiguration configuration) : ICurrentTenant
 {
     public Guid TenantId
     {
@@ -27,6 +27,8 @@ public sealed class HttpCurrentTenant(IHttpContextAccessor accessor) : ICurrentT
             }
             if (user?.Identity?.IsAuthenticated == true && HasImobiliariaAccess(user))
                 permissions.UnionWith(["harness.read", "harness.execute"]);
+            if (user?.Identity?.IsAuthenticated == true && HasFuncionarioDigitalReceiptsAccess(user))
+                permissions.UnionWith(["harness.read", "harness.execute"]);
             return permissions.ToFrozenSet();
         }
     }
@@ -35,4 +37,7 @@ public sealed class HttpCurrentTenant(IHttpContextAccessor accessor) : ICurrentT
     private static bool HasImobiliariaAccess(System.Security.Claims.ClaimsPrincipal user) =>
         user.FindAll("product").Select(c => c.Value).SequenceEqual(["nextaz-imobiliaria"]) &&
         HarnessSecurity.HasImobiliariaServiceAccess(user);
+    private bool HasFuncionarioDigitalReceiptsAccess(System.Security.Claims.ClaimsPrincipal user) =>
+        user.FindAll("product").Select(c => c.Value).SequenceEqual(["funcionario-digital"]) &&
+        HarnessSecurity.HasFuncionarioDigitalReceiptsServiceAccess(user, configuration);
 }

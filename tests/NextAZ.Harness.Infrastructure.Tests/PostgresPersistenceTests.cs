@@ -4,10 +4,147 @@ using NextAZ.Harness.Contracts.Events;
 using NextAZ.Harness.Domain.Agents;
 using NextAZ.Harness.Domain.Executions;
 using NextAZ.Harness.Infrastructure.Persistence;
+using NextAZ.Harness.Runtime.Abstractions;
 using HarnessContext = NextAZ.Harness.Domain.Executions.ExecutionContext;
 namespace NextAZ.Harness.Infrastructure.Tests;
 public sealed class PostgresPersistenceTests
 {
+    [PostgresFact] public async Task Agent_route_update_is_tenant_scoped_versioned_and_audited()
+    {
+        var (factory, _) = await CreateAsync();
+        var tenant = Guid.NewGuid();
+        var repository = new PostgresAgentRouteBindingRepository(factory, TimeProvider.System);
+        try
+        {
+            var created = await repository.SaveAsync(new(tenant, "api", "funcionario-digital.recibo",
+                new AgentId("funcionario-digital.recibo"), new AgentVersion(1), true, null, "service:user"), default);
+            var updated = await repository.SaveAsync(new(tenant, "api", "funcionario-digital.recibo",
+                created.AgentId, created.AgentVersion, false, created.Revision, "service:user"), default);
+
+            Assert.Equal(2, updated.Revision);
+            Assert.False(updated.Enabled);
+            await Assert.ThrowsAsync<AgentRouteRevisionConflictException>(() => repository.SaveAsync(new(
+                tenant, "api", "funcionario-digital.recibo", created.AgentId, created.AgentVersion,
+                true, created.Revision, "service:user"), default));
+            await using var db = await factory.CreateDbContextAsync();
+            Assert.Equal(2, await db.Database.SqlQueryRaw<int>(
+                "SELECT count(*)::int AS \"Value\" FROM harness.agent_route_binding_events WHERE tenant_id = {0}",
+                tenant).SingleAsync());
+            Assert.Empty(await repository.ListAsync(Guid.NewGuid(), default));
+        }
+        finally
+        {
+            await using var db = await factory.CreateDbContextAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_route_binding_events WHERE tenant_id = {tenant}");
+            await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_route_bindings WHERE tenant_id = {tenant}");
+        }
+    }
+
+    [PostgresFact] public async Task Concurrent_route_updates_have_exactly_one_winner()
+    {
+        var (factory, _) = await CreateAsync();
+        var tenant = Guid.NewGuid();
+        var repository = new PostgresAgentRouteBindingRepository(factory, TimeProvider.System);
+        try
+        {
+            var created = await repository.SaveAsync(new(tenant, "api", "tests.concurrent",
+                new AgentId("funcionario-digital.recibo"), new AgentVersion(1), true, null, "service"), default);
+            async Task<bool> Attempt(bool enabled)
+            {
+                try
+                {
+                    await repository.SaveAsync(new(tenant, "api", "tests.concurrent", created.AgentId,
+                        created.AgentVersion, enabled, created.Revision, "service"), default);
+                    return true;
+                }
+                catch (AgentRouteRevisionConflictException) { return false; }
+            }
+
+            var results = await Task.WhenAll(Attempt(false), Attempt(true));
+            Assert.Single(results, result => result);
+            var stored = await repository.GetAsync(tenant, "api", "tests.concurrent", default);
+            Assert.Equal(2, stored?.Revision);
+            await using var db = await factory.CreateDbContextAsync();
+            Assert.Equal(2, await db.Database.SqlQueryRaw<int>(
+                "SELECT count(*)::int AS \"Value\" FROM harness.agent_route_binding_events WHERE tenant_id = {0}",
+                tenant).SingleAsync());
+        }
+        finally
+        {
+            await using var db = await factory.CreateDbContextAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_route_binding_events WHERE tenant_id = {tenant}");
+            await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_route_bindings WHERE tenant_id = {tenant}");
+        }
+    }
+
+    [PostgresFact] public async Task Concurrent_route_creations_have_exactly_one_winner()
+    {
+        var (factory, _) = await CreateAsync();
+        var tenant = Guid.NewGuid();
+        var repository = new PostgresAgentRouteBindingRepository(factory, TimeProvider.System);
+        try
+        {
+            async Task<bool> Attempt()
+            {
+                try
+                {
+                    await repository.SaveAsync(new(tenant, "api", "tests.concurrent-create",
+                        new AgentId("funcionario-digital.recibo"), new AgentVersion(1), true, null, "service"), default);
+                    return true;
+                }
+                catch (AgentRouteRevisionConflictException) { return false; }
+            }
+
+            var results = await Task.WhenAll(Attempt(), Attempt());
+            Assert.Single(results, result => result);
+            var stored = await repository.GetAsync(tenant, "api", "tests.concurrent-create", default);
+            Assert.Equal(1, stored?.Revision);
+            await using var db = await factory.CreateDbContextAsync();
+            Assert.Equal(1, await db.Database.SqlQueryRaw<int>(
+                "SELECT count(*)::int AS \"Value\" FROM harness.agent_route_binding_events WHERE tenant_id = {0}",
+                tenant).SingleAsync());
+        }
+        finally
+        {
+            await using var db = await factory.CreateDbContextAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_route_binding_events WHERE tenant_id = {tenant}");
+            await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_route_bindings WHERE tenant_id = {tenant}");
+        }
+    }
+
+    [PostgresFact] public async Task Route_binding_rolls_back_when_audit_insert_conflicts()
+    {
+        var (factory, _) = await CreateAsync();
+        var tenant = Guid.NewGuid();
+        var repository = new PostgresAgentRouteBindingRepository(factory, TimeProvider.System);
+        try
+        {
+            var created = await repository.SaveAsync(new(tenant, "api", "tests.audit-rollback",
+                new AgentId("funcionario-digital.recibo"), new AgentVersion(1), true, null, "service"), default);
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var now = DateTimeOffset.UtcNow;
+                await db.Database.ExecuteSqlInterpolatedAsync($@"INSERT INTO harness.agent_route_binding_events
+                    (event_id, tenant_id, channel, operation, agent_id, agent_version, enabled, revision, occurred_at, actor)
+                    VALUES ({Guid.NewGuid()}, {tenant}, {"api"}, {"tests.audit-rollback"},
+                     {"funcionario-digital.recibo"}, {1}, {false}, {2}, {now}, {"fixture"})");
+            }
+
+            await Assert.ThrowsAsync<AgentRouteRevisionConflictException>(() => repository.SaveAsync(new(
+                tenant, "api", "tests.audit-rollback", created.AgentId, created.AgentVersion,
+                false, created.Revision, "service"), default));
+            var stored = await repository.GetAsync(tenant, "api", "tests.audit-rollback", default);
+            Assert.Equal(1, stored?.Revision);
+            Assert.True(stored?.Enabled);
+        }
+        finally
+        {
+            await using var db = await factory.CreateDbContextAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_route_binding_events WHERE tenant_id = {tenant}");
+            await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_route_bindings WHERE tenant_id = {tenant}");
+        }
+    }
+
     [PostgresFact] public async Task PersistsImmutableFingerprintForConflictingReplay()
     {
         var (factory, repository) = await CreateAsync();

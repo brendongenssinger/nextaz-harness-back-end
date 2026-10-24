@@ -91,12 +91,13 @@ public sealed class OpenAiResponsesModelProvider(HttpClient httpClient, OpenAiRe
     }
     private static object BuildInput(ModelExecutionRequest request)
     {
-        if (request.ToolResults.Count == 0 && request.Messages is not { Count: > 0 }) return request.Content;
+        if (request.ToolResults.Count == 0 && request.Messages is not { Count: > 0 } &&
+            request.Attachments is not { Count: > 0 }) return request.Content;
         var input = new List<object>();
         if (request.Messages is { Count: > 0 })
             input.AddRange(request.Messages.Select(message => (object)new
                 { role = message.Role, content = message.Content }));
-        input.Add(new { role = "user", content = request.Content });
+        input.Add(new { role = "user", content = BuildUserContent(request) });
         foreach (var result in request.ToolResults)
         {
             if (result.Arguments.ValueKind != JsonValueKind.Object)
@@ -107,6 +108,20 @@ public sealed class OpenAiResponsesModelProvider(HttpClient httpClient, OpenAiRe
                 output = result.Output.GetRawText() });
         }
         return input;
+    }
+
+    private static object BuildUserContent(ModelExecutionRequest request)
+    {
+        if (request.Attachments is not { Count: > 0 }) return request.Content;
+        var content = new List<object> { new { type = "input_text", text = request.Content } };
+        foreach (var attachment in request.Attachments)
+        {
+            var dataUrl = $"data:{attachment.MediaType};base64,{attachment.Base64Data}";
+            content.Add(attachment.MediaType == "application/pdf"
+                ? new { type = "input_file", file_data = dataUrl, filename = attachment.FileName }
+                : (object)new { type = "input_image", image_url = dataUrl, detail = "high" });
+        }
+        return content;
     }
     private static JsonElement ParseSchema(string schema)
     {
