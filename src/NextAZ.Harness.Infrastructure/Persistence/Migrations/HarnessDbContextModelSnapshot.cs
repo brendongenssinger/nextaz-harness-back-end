@@ -23,6 +23,68 @@ namespace NextAZ.Harness.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.AgentModelRouteRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("AgentId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("agent_id");
+
+                    b.Property<int>("AgentVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_version");
+
+                    b.Property<string>("ModelPolicy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model_policy");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer")
+                        .HasColumnName("priority");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("ModelId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("model_id");
+
+                    b.Property<Guid>("ProviderConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_connection_id");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("timeout_seconds");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TenantId", "AgentId", "AgentVersion", "ModelPolicy", "Priority")
+                        .HasName("pk_agent_model_routes");
+
+                    b.HasIndex("TenantId", "ProviderConnectionId")
+                        .HasDatabaseName("ix_agent_model_routes_tenant_provider_connection");
+
+                    b.ToTable("agent_model_routes", "harness", t =>
+                        {
+                            t.HasCheckConstraint("ck_agent_model_routes_values", "agent_version > 0 AND priority BETWEEN 1 AND 4 AND timeout_seconds BETWEEN 1 AND 300 AND agent_id ~ '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$' AND length(model_policy) BETWEEN 1 AND 100 AND btrim(model_policy) <> '' AND length(model_id) BETWEEN 1 AND 200 AND btrim(model_id) <> ''");
+                        });
+                });
+
             modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.ExecutionRecord", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -229,6 +291,120 @@ namespace NextAZ.Harness.Infrastructure.Persistence.Migrations
                     b.ToTable("outbox_events", "harness");
                 });
 
+            modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.ProviderConnectionRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ProviderConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_connection_id");
+
+                    b.Property<byte[]>("ApiKeyNonce")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("api_key_nonce");
+
+                    b.Property<byte[]>("ApiKeyTag")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("api_key_tag");
+
+                    b.Property<string>("ConnectionKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("connection_key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("display_name");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<byte[]>("EncryptedApiKey")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("encrypted_api_key");
+
+                    b.Property<byte[]>("EncryptedDataKey")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("encrypted_data_key");
+
+                    b.Property<string>("EncryptionAlgorithm")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("encryption_algorithm");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("endpoint");
+
+                    b.Property<string>("KeyEncryptionKeyId")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("key_encryption_key_id");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("provider_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TenantId", "ProviderConnectionId")
+                        .HasName("pk_provider_connections");
+
+                    b.HasIndex("TenantId", "ConnectionKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_provider_connections_tenant_key");
+
+                    b.HasIndex("TenantId", "ProviderId", "Enabled")
+                        .HasDatabaseName("ix_provider_connections_tenant_provider_enabled");
+
+                    b.ToTable("provider_connections", "harness", t =>
+                        {
+                            t.HasCheckConstraint("ck_provider_connections_encrypted_credential", "octet_length(encrypted_api_key) > 0 AND octet_length(api_key_nonce) = 12 AND octet_length(api_key_tag) = 16 AND octet_length(encrypted_data_key) > 0 AND octet_length(encrypted_api_key) <= 16384 AND octet_length(encrypted_data_key) <= 1024");
+
+                            t.HasCheckConstraint("ck_provider_connections_endpoint", "endpoint ~ '^https://[^[:space:]]+$'");
+
+                            t.HasCheckConstraint("ck_provider_connections_key", "connection_key ~ '^[a-z0-9][a-z0-9._-]{1,79}$'");
+
+                            t.HasCheckConstraint("ck_provider_connections_key_encryption", "key_encryption_key_id ~ '^https://[^[:space:]]+/keys/[^/[:space:]]+/[^/[:space:]]+$' AND encryption_algorithm = 'RSA-OAEP-256'");
+
+                            t.HasCheckConstraint("ck_provider_connections_text", "btrim(provider_id) <> '' AND btrim(display_name) <> '' AND btrim(endpoint) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.AgentModelRouteRecord", b =>
+                {
+                    b.HasOne("NextAZ.Harness.Infrastructure.Persistence.ProviderConnectionRecord", "ProviderConnection")
+                        .WithMany("AgentModelRoutes")
+                        .HasForeignKey("TenantId", "ProviderConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agent_model_routes_provider_connection");
+
+                    b.Navigation("ProviderConnection");
+                });
+
             modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.OutboxEventRecord", b =>
                 {
                     b.HasOne("NextAZ.Harness.Infrastructure.Persistence.ExecutionRecord", null)
@@ -237,6 +413,11 @@ namespace NextAZ.Harness.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_outbox_events_executions");
+                });
+
+            modelBuilder.Entity("NextAZ.Harness.Infrastructure.Persistence.ProviderConnectionRecord", b =>
+                {
+                    b.Navigation("AgentModelRoutes");
                 });
 #pragma warning restore 612, 618
         }

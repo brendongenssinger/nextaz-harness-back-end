@@ -33,8 +33,12 @@ public static class HarnessSecurity
                 .RequireRole("HarnessAdmin", "HarnessOperator"));
             options.AddPolicy("HarnessRead", policy => HarnessPolicy(policy)
                 .RequireRole("HarnessAdmin", "HarnessOperator", "HarnessViewer"));
+            options.AddPolicy("HarnessWrite", policy => HarnessPolicy(policy)
+                .RequireRole("HarnessAdmin"));
             options.AddPolicy("ImobiliariaExecute", ImobiliariaPolicy);
             options.AddPolicy("ImobiliariaRead", ImobiliariaPolicy);
+            options.AddPolicy("CartorioExecute", CartorioPolicy);
+            options.AddPolicy("CartorioRead", CartorioPolicy);
             options.FallbackPolicy = TenantPolicy(new AuthorizationPolicyBuilder()).Build();
         });
         return services;
@@ -44,6 +48,9 @@ public static class HarnessSecurity
     private static void ImobiliariaPolicy(AuthorizationPolicyBuilder policy) =>
         TenantPolicy(policy).RequireAssertion(context => HasSingleClaim(context.User, "product", "nextaz-imobiliaria") &&
             HasImobiliariaServiceAccess(context.User));
+    private static void CartorioPolicy(AuthorizationPolicyBuilder policy) =>
+        TenantPolicy(policy).RequireAssertion(context => HasSingleClaim(context.User, "product", "nextaz-cartorio") &&
+            HasCartorioServiceAccess(context.User));
     private static AuthorizationPolicyBuilder ProductPolicy(AuthorizationPolicyBuilder policy,
         string product, string scope) => TenantPolicy(policy)
             .RequireAssertion(context => HasSingleClaim(context.User, "product", product))
@@ -62,6 +69,11 @@ public static class HarnessSecurity
         HasSingleClaim(user, "sub", "nextaz-imobiliaria-harness") &&
         HasSingleClaim(user, "client_id", "nextaz-imobiliaria-harness") &&
         HasSingleClaim(user, "azp", "nextaz-imobiliaria-harness");
+    internal static bool HasCartorioServiceAccess(System.Security.Claims.ClaimsPrincipal user) =>
+        user.IsInRole("Service") && HasScope(user, "cartorio.atendimento") &&
+        HasSingleClaim(user, "sub", "nextaz-cartorio-harness") &&
+        HasSingleClaim(user, "client_id", "nextaz-cartorio-harness") &&
+        HasSingleClaim(user, "azp", "nextaz-cartorio-harness");
     private static bool HasSingleClaim(System.Security.Claims.ClaimsPrincipal user, string type, string value)
     {
         var claims = user.FindAll(type).ToArray();

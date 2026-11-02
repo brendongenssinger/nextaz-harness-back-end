@@ -12,6 +12,12 @@ public static class EmployeeDraftComposition
         services.AddAuthorization(options => options.AddPolicy("HarnessEmployeeDraft", policy =>
             policy.RequireAuthenticatedUser().RequireAssertion(context =>
                 Security.HarnessServiceClaims.CanDraft(context.User, configuration))));
+        services.AddAuthorization(options => options.AddPolicy("WhatsAppTemplateGenerate", policy =>
+            policy.RequireAuthenticatedUser().RequireAssertion(context =>
+                Security.HarnessServiceClaims.CanGenerateWhatsAppTemplate(context.User, configuration))));
+        services.AddAuthorization(options => options.AddPolicy("ReceiptClassify", policy =>
+            policy.RequireAuthenticatedUser().RequireAssertion(context =>
+                Security.HarnessServiceClaims.CanClassifyReceipt(context.User, configuration))));
         services.AddScoped<Security.HttpCurrentTenant>();
         services.AddScoped<NextAZ.Harness.Application.Abstractions.ICurrentTenant, Security.EmployeeCurrentTenant>();
         services.AddSingleton<IEmployeeDraftProfileRepository>(_ =>

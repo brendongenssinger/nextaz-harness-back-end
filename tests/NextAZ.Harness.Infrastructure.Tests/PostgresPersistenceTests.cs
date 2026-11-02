@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using NextAZ.Harness.Contracts.Events;
+using NextAZ.Harness.Application.Administration;
 using NextAZ.Harness.Domain.Agents;
 using NextAZ.Harness.Domain.Executions;
+using NextAZ.Harness.Domain.Policies;
 using NextAZ.Harness.Infrastructure.Persistence;
+using NextAZ.Harness.Runtime.ModelRouting;
 using HarnessContext = NextAZ.Harness.Domain.Executions.ExecutionContext;
 namespace NextAZ.Harness.Infrastructure.Tests;
 public sealed class PostgresPersistenceTests
@@ -108,6 +111,101 @@ public sealed class PostgresPersistenceTests
         finally { await Cleanup(factory, tenant); }
     }
 
+    [PostgresFact] public async Task PoliciesCoexistAndPublishedRouteChainIsImmutable()
+    {
+        var (factory, _) = await CreateAsync();
+        var tenant = Guid.NewGuid();
+        var administration = new PostgresProviderRoutingAdministration(factory,
+            new TestProviderTokenProtector(), TimeProvider.System);
+        try
+        {
+            var connection = await administration.UpsertConnectionAsync(tenant,
+                new("openai-primary", "openai-responses", "OpenAI", "https://api.openai.com/v1/",
+                    "test-token", true), default);
+            var fast = new[] { new AgentModelRouteDraft(connection.ProviderConnectionId,
+                "fast-cheap", "gpt-4o-mini", 15, true) };
+            var detailed = new[] { new AgentModelRouteDraft(connection.ProviderConnectionId,
+                "receipt-classification-v2", "gpt-4o-mini", 30, true) };
+            await administration.ReplaceAgentRoutesAsync(tenant, "funcionario-digital.recibo", 2,
+                fast, default);
+            await administration.ReplaceAgentRoutesAsync(tenant, "funcionario-digital.recibo", 2,
+                detailed, default);
+            await administration.ReplaceAgentRoutesAsync(tenant, "funcionario-digital.recibo", 2,
+                detailed, default);
+
+            var router = new PostgresModelRouter(factory);
+            Assert.Single(await router.ResolveAsync(tenant, new("funcionario-digital.recibo"), new(2),
+                new ModelPolicy("fast-cheap"), default));
+            Assert.Single(await router.ResolveAsync(tenant, new("funcionario-digital.recibo"), new(2),
+                new ModelPolicy("receipt-classification-v2"), default));
+            var changed = new[] { detailed[0] with { ModelId = "gpt-4.1-mini" } };
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                administration.ReplaceAgentRoutesAsync(tenant, "funcionario-digital.recibo", 2,
+                    changed, default));
+            Assert.Equal("agent_model_route_immutable", error.Message);
+            await Assert.ThrowsAsync<ArgumentException>(() => administration.ReplaceAgentRoutesAsync(
+                tenant, "funcionario-digital.recibo", 3,
+                [fast[0], detailed[0]], default));
+        }
+        finally { await Cleanup(factory, tenant); }
+    }
+
+    [PostgresFact] public async Task ProviderIdentityIsImmutableWhileCredentialRotationRemainsAllowed()
+    {
+        var (factory, _) = await CreateAsync();
+        var tenant = Guid.NewGuid();
+        var administration = new PostgresProviderRoutingAdministration(factory,
+            new TestProviderTokenProtector(), TimeProvider.System);
+        try
+        {
+            var created = await administration.UpsertConnectionAsync(tenant,
+                new("openai-primary", "openai-responses", "OpenAI", "https://api.openai.com/v1/",
+                    "first-token", true), default);
+            var rotated = await administration.UpsertConnectionAsync(tenant,
+                new("openai-primary", "openai-responses", "OpenAI primary",
+                    "https://api.openai.com/v1/", "rotated-token", true), default);
+            Assert.Equal(created.ProviderConnectionId, rotated.ProviderConnectionId);
+            Assert.Equal("OpenAI primary", rotated.DisplayName);
+
+            var providerChange = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                administration.UpsertConnectionAsync(tenant,
+                    new("openai-primary", "gemini", "Gemini", "https://api.openai.com/v1/",
+                        "token", true), default));
+            Assert.Equal("provider_connection_identity_immutable", providerChange.Message);
+            var endpointChange = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                administration.UpsertConnectionAsync(tenant,
+                    new("openai-primary", "openai-responses", "OpenAI",
+                        "https://example.com/v1/", "token", true), default));
+            Assert.Equal("provider_connection_identity_immutable", endpointChange.Message);
+
+            await using var db = await factory.CreateDbContextAsync();
+            var stored = await db.Database.SqlQueryRaw<ProviderIdentitySnapshot>(
+                "SELECT provider_id AS \"ProviderId\", endpoint AS \"Endpoint\", " +
+                "display_name AS \"DisplayName\" FROM harness.provider_connections " +
+                "WHERE tenant_id = {0} AND provider_connection_id = {1}",
+                tenant, created.ProviderConnectionId).SingleAsync();
+            Assert.Equal("openai-responses", stored.ProviderId);
+            Assert.Equal("https://api.openai.com/v1/", stored.Endpoint);
+            Assert.Equal("OpenAI primary", stored.DisplayName);
+
+            var maximumProviderId = "p" + new string('a', 119);
+            var maximumEndpoint = "https://example.com/" + new string('a', 2027) + "/";
+            var boundary = await administration.UpsertConnectionAsync(tenant,
+                new("provider-boundary", maximumProviderId, "Boundary", maximumEndpoint,
+                    "token", true), default);
+            Assert.Equal(maximumProviderId, boundary.ProviderId);
+            Assert.Equal(2048, boundary.Endpoint.Length);
+            await Assert.ThrowsAsync<ArgumentException>(() => administration.UpsertConnectionAsync(tenant,
+                new("provider-too-long", maximumProviderId + "b", "Too long",
+                    "https://example.com/v1/", "token", true), default));
+            var endpointThatGrowsPastLimit = "https://example.com/" + new string('a', 2028);
+            await Assert.ThrowsAsync<ArgumentException>(() => administration.UpsertConnectionAsync(tenant,
+                new("endpoint-too-long", "openai-responses", "Too long",
+                    endpointThatGrowsPastLimit, "token", true), default));
+        }
+        finally { await Cleanup(factory, tenant); }
+    }
+
     private static async Task<(PooledDbContextFactory<HarnessDbContext> Factory,
         PostgresExecutionRepository Repository)> CreateAsync()
     {
@@ -143,9 +241,25 @@ public sealed class PostgresPersistenceTests
     private static async Task Cleanup(PooledDbContextFactory<HarnessDbContext> factory, Guid tenant)
     {
         await using var db = await factory.CreateDbContextAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.agent_model_routes WHERE tenant_id = {tenant}");
+        await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.provider_connections WHERE tenant_id = {tenant}");
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.outbox_events WHERE tenant_id = {tenant}");
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM harness.executions WHERE tenant_id = {tenant}");
     }
+
+    private sealed class TestProviderTokenProtector : IProviderTokenProtector
+    {
+        public Task<ProtectedProviderToken> ProtectAsync(Guid tenantId, Guid providerConnectionId,
+            string plaintextToken, CancellationToken cancellationToken) => Task.FromResult(new ProtectedProviderToken(
+            [1], new byte[12], new byte[16], [1],
+            "https://example.vault.azure.net/keys/test/version", "RSA-OAEP-256"));
+
+        public Task<string> UnprotectAsync(Guid tenantId, Guid providerConnectionId,
+            ProtectedProviderToken protectedToken, CancellationToken cancellationToken) =>
+            Task.FromResult("test-token");
+    }
+
+    private sealed record ProviderIdentitySnapshot(string ProviderId, string Endpoint, string DisplayName);
 }
 
 [AttributeUsage(AttributeTargets.Method)]

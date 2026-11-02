@@ -6,6 +6,7 @@ using NextAZ.Harness.Domain.Agents;
 using NextAZ.Harness.Domain.Executions;
 using NextAZ.Harness.Domain.Tools;
 using NextAZ.Harness.Providers.OpenAI;
+using NextAZ.Harness.Runtime.Abstractions;
 using NextAZ.Harness.Runtime.Execution;
 using NextAZ.Harness.Runtime.Memory;
 using NextAZ.Harness.Runtime.ModelRouting;
@@ -33,12 +34,101 @@ public sealed class OpenAiResponsesProviderTests
         Assert.Equal("configured-model", body.RootElement.GetProperty("model").GetString());
         Assert.True(body.RootElement.TryGetProperty("tools", out _));
     }
+    [Fact] public async Task ResolvesCredentialAndModelFromTenantAgentRoute()
+    {
+        var handler = new CapturingHandler((_, _) => Json(HttpStatusCode.OK,
+            "{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}"));
+        var request = Request();
+        var connectionId = Guid.NewGuid();
+        request = request with
+        {
+            Route = new("openai-responses", "gpt-4o-mini", TimeSpan.FromSeconds(1), connectionId)
+        };
+        var options = OpenAiResponsesOptions.Create("https://fallback.invalid/v1/", null, null,
+            allowGlobalFallback: false);
+        var resolver = new StubConnectionResolver(request.Context.TenantId, connectionId,
+            new(connectionId, "openai-responses", new("https://tenant-openai.example/v1/"),
+                "tenant-secret"));
+
+        await new OpenAiResponsesModelProvider(new HttpClient(handler), options, resolver)
+            .ExecuteAsync(request, default);
+
+        Assert.Equal("tenant-secret", handler.AuthorizationParameter);
+        Assert.Equal("https://tenant-openai.example/v1/responses", handler.RequestUri);
+        Assert.DoesNotContain("tenant-secret", handler.Body);
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal("gpt-4o-mini", body.RootElement.GetProperty("model").GetString());
+    }
     [Fact] public async Task IncompleteResponseFailsClosed()
     {
         var provider = Provider(new CapturingHandler((_, _) => Json(HttpStatusCode.OK,
             "{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}")));
         var error = await Assert.ThrowsAsync<HarnessExecutionException>(() => provider.ExecuteAsync(Request(), default));
         Assert.Equal("provider_response_incomplete", error.Code);
+    }
+    [Fact] public async Task CalculatesConfiguredTokenCostAsExecutionSnapshot()
+    {
+        var handler = new CapturingHandler((_, _) => Json(HttpStatusCode.OK,
+            "{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":750000,\"output_tokens\":250000}}"));
+        var options = OpenAiResponsesOptions.Create("https://api.openai.com/v1/", "test-secret",
+            "configured-model", 2m, 8m, "usd");
+
+        var result = await new OpenAiResponsesModelProvider(new HttpClient(handler), options)
+            .ExecuteAsync(Request(), default);
+
+        Assert.Equal(3.5m, result.EstimatedCost);
+        Assert.Equal("USD", options.CostCurrency);
+    }
+    [Fact] public async Task SendsAllowlistedImageWithStrictStructuredOutput()
+    {
+        var handler = new CapturingHandler((_, _) => Json(HttpStatusCode.OK,
+            "{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"isReceipt\\\":false}\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":4}}"));
+        var options = OpenAiResponsesOptions.Create("https://api.openai.com/v1/", "test-secret",
+            "configured-model", allowedMediaHosts: ["nextazstorage.blob.core.windows.net"]);
+        var provider = new OpenAiResponsesModelProvider(new HttpClient(handler), options);
+        var schema = new StructuredOutputDefinition("receipt_classification", "Receipt classification",
+            "{\"type\":\"object\",\"properties\":{\"isReceipt\":{\"type\":\"boolean\"}},\"required\":[\"isReceipt\"],\"additionalProperties\":false}");
+        var request = Request() with
+        {
+            StructuredOutput = schema,
+            MediaInputs = [new("image",
+                "https://nextazstorage.blob.core.windows.net/midias/receipt.jpg?sig=test-only", "low")]
+        };
+
+        await provider.ExecuteAsync(request, default);
+
+        using var body = JsonDocument.Parse(handler.Body!);
+        var input = body.RootElement.GetProperty("input");
+        var user = input.EnumerateArray().Single();
+        var content = user.GetProperty("content");
+        Assert.Contains(content.EnumerateArray(), part =>
+            part.GetProperty("type").GetString() == "input_image" &&
+            part.GetProperty("detail").GetString() == "low");
+        var format = body.RootElement.GetProperty("text").GetProperty("format");
+        Assert.Equal("json_schema", format.GetProperty("type").GetString());
+        Assert.Equal("receipt_classification", format.GetProperty("name").GetString());
+        Assert.True(format.GetProperty("strict").GetBoolean());
+        Assert.False(format.GetProperty("schema").GetProperty("additionalProperties").GetBoolean());
+    }
+    [Fact] public async Task RejectsImageHostOutsideProviderAllowlist()
+    {
+        var provider = Provider(new CapturingHandler((_, _) => Json(HttpStatusCode.OK, "{}")));
+        var request = Request() with
+        {
+            MediaInputs = [new("image", "https://attacker.example/receipt.jpg", "low")]
+        };
+
+        var error = await Assert.ThrowsAsync<HarnessExecutionException>(() =>
+            provider.ExecuteAsync(request, default));
+
+        Assert.Equal("media_source_forbidden", error.Code);
+    }
+    [Fact] public void PricingRequiresBothSides()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => OpenAiResponsesOptions.Create(
+            "https://api.openai.com/v1/", "test-secret", "configured-model", 2m, null));
+
+        Assert.Contains("both", error.Message, StringComparison.OrdinalIgnoreCase);
     }
     [Theory]
     [InlineData(HttpStatusCode.RequestTimeout)]
@@ -142,6 +232,7 @@ public sealed class OpenAiResponsesProviderTests
         public string? Body { get; private set; }
         public string? AuthorizationScheme { get; private set; }
         public string? AuthorizationParameter { get; private set; }
+        public string? RequestUri { get; private set; }
         public CapturingHandler(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> response)
             : this((message, token) => Task.FromResult(response(message, token))) { }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
@@ -149,8 +240,20 @@ public sealed class OpenAiResponsesProviderTests
         {
             AuthorizationScheme = request.Headers.Authorization?.Scheme;
             AuthorizationParameter = request.Headers.Authorization?.Parameter;
+            RequestUri = request.RequestUri?.AbsoluteUri;
             Body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             return await response(request, cancellationToken);
+        }
+    }
+    private sealed class StubConnectionResolver(Guid tenantId, Guid connectionId,
+        ProviderConnectionCredentials credentials) : IProviderConnectionResolver
+    {
+        public Task<ProviderConnectionCredentials> ResolveAsync(Guid requestedTenantId,
+            Guid requestedConnectionId, CancellationToken cancellationToken)
+        {
+            Assert.Equal(tenantId, requestedTenantId);
+            Assert.Equal(connectionId, requestedConnectionId);
+            return Task.FromResult(credentials);
         }
     }
 }

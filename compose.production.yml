@@ -1,0 +1,33 @@
+# Preparacao: usar somente depois dos gates descritos em docs/production.md.
+# Compose >= 2.30. Nao usar --env-file para o arquivo de secrets; usar env_file raw abaixo.
+name: nextaz-harness
+services:
+  harness:
+    image: ${HARNESS_IMAGE:?Informe imagem aprovada por tag imutavel ou digest}
+    env_file:
+      - path: ${HARNESS_ENV_FILE:?Informe caminho absoluto do arquivo privado de env}
+        required: true
+        format: raw
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${HARNESS_LOCAL_PORT:-5088}:8080"
+    networks:
+      - nextaz-network
+    labels:
+      traefik.enable: "false"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+networks:
+  nextaz-network:
+    external: true

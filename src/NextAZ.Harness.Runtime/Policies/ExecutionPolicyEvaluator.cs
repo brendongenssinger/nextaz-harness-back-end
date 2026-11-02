@@ -2,6 +2,14 @@ using NextAZ.Harness.Runtime.Execution;
 namespace NextAZ.Harness.Runtime.Policies;
 public sealed class ExecutionPolicyEvaluator : IExecutionPolicyEvaluator
 {
+    private static readonly IReadOnlySet<string> SupportedPolicies = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "tenant-isolation",
+        "tools-allowlist",
+        "structured-output",
+        "human-review"
+    };
+
     public void Validate(HarnessContext context, AgentDefinition agent, TenantAgentConfiguration configuration,
         IReadOnlySet<string> permissions)
     {
@@ -16,7 +24,7 @@ public sealed class ExecutionPolicyEvaluator : IExecutionPolicyEvaluator
         if (!permissions.Contains("harness.execute"))
             throw new HarnessExecutionException("execution_forbidden");
         foreach (var policy in agent.RequiredPolicies)
-            if (policy != "tenant-isolation" && policy != "tools-allowlist")
+            if (!SupportedPolicies.Contains(policy))
                 throw new HarnessExecutionException("unsupported_policy");
     }
 }

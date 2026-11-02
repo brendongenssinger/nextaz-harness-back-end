@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using NextAZ.Harness.Api.Configuration;
 using NextAZ.Harness.Infrastructure.Persistence;
 using NextAZ.Harness.Api.Security;
+using NextAZ.Harness.Runtime.Abstractions;
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders().AddJsonConsole();
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 65536);
@@ -31,7 +32,30 @@ app.MapGet("/health/ready", async (HarnessRuntimeDescriptor runtime, IServicePro
         await using var scope = services.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<HarnessDbContext>>();
         await using var db = await factory.CreateDbContextAsync(cancellationToken);
-        try { ready = await db.Database.CanConnectAsync(cancellationToken); }
+        try
+        {
+            ready = await db.Database.CanConnectAsync(cancellationToken);
+            if (ready)
+            {
+                var requirements = scope.ServiceProvider.GetRequiredService<HarnessRouteRequirements>();
+                var router = scope.ServiceProvider.GetRequiredService<IModelRouter>();
+                var resolver = scope.ServiceProvider.GetRequiredService<IProviderConnectionResolver>();
+                var routeReadiness = scope.ServiceProvider.GetRequiredService<HarnessRouteReadiness>();
+                foreach (var requirement in requirements.Items)
+                {
+                    var routes = await router.ResolveAsync(requirement.TenantId, requirement.AgentId,
+                        requirement.AgentVersion, requirement.ModelPolicy, cancellationToken);
+                    if (!routeReadiness.AreOperational(routes))
+                    {
+                        ready = false;
+                        break;
+                    }
+                    foreach (var route in routes)
+                        _ = await resolver.ResolveAsync(requirement.TenantId,
+                            route.ProviderConnectionId!.Value, cancellationToken);
+                }
+            }
+        }
         catch { ready = false; }
     }
     var body = new { status = ready ? "Healthy" : "Unhealthy", mode = runtime.Mode,

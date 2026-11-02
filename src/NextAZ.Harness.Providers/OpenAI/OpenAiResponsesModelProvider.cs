@@ -8,17 +8,33 @@ using NextAZ.Harness.Runtime.Execution;
 using NextAZ.Harness.Runtime.ModelRouting;
 using NextAZ.Harness.Runtime.Tooling;
 namespace NextAZ.Harness.Providers.OpenAI;
-public sealed class OpenAiResponsesModelProvider(HttpClient httpClient, OpenAiResponsesOptions options) : IModelProvider
+public sealed class OpenAiResponsesModelProvider(HttpClient httpClient, OpenAiResponsesOptions options,
+    IProviderConnectionResolver? connectionResolver = null) : IModelProvider
 {
     private const int MaxResponseBytes = 1_048_576;
     public string ProviderId => "openai-responses";
     public async Task<ModelExecutionResult> ExecuteAsync(ModelExecutionRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!string.Equals(request.Route.ModelId, options.Model, StringComparison.Ordinal))
+        var endpoint = options.Endpoint;
+        var apiKey = options.ApiKey;
+        if (request.Route.ProviderConnectionId is { } connectionId)
+        {
+            if (connectionResolver is null)
+                throw new HarnessExecutionException("provider_connection_invalid");
+            var connection = await connectionResolver.ResolveAsync(request.Context.TenantId, connectionId,
+                cancellationToken);
+            if (!string.Equals(connection.ProviderId, ProviderId, StringComparison.Ordinal))
+                throw new HarnessExecutionException("provider_connection_invalid");
+            endpoint = EnsureTrailingSlash(connection.Endpoint);
+            apiKey = connection.ApiKey;
+        }
+        else if (!options.AllowGlobalFallback)
+            throw new HarnessExecutionException("provider_connection_required");
+        else if (!string.Equals(request.Route.ModelId, options.Model, StringComparison.Ordinal))
             throw new HarnessExecutionException("model_route_invalid");
-        using var message = new HttpRequestMessage(HttpMethod.Post, new Uri(options.Endpoint, "responses"));
-        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+        using var message = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint, "responses"));
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         message.Content = JsonContent.Create(BuildPayload(request));
         HttpResponseMessage response;
         try
@@ -54,12 +70,16 @@ public sealed class OpenAiResponsesModelProvider(HttpClient httpClient, OpenAiRe
             var content = ExtractContent(root);
             var calls = ExtractToolCalls(root, request.Tools);
             var usage = root.TryGetProperty("usage", out var usageElement) ? usageElement : default;
-            return new(content, calls, ReadNonNegativeInt(usage, "input_tokens"),
-                ReadNonNegativeInt(usage, "output_tokens"), null);
+            var inputTokens = ReadNonNegativeInt(usage, "input_tokens");
+            var outputTokens = ReadNonNegativeInt(usage, "output_tokens");
+            return new(content, calls, inputTokens, outputTokens,
+                request.Route.ProviderConnectionId is null
+                    ? options.EstimateCost(inputTokens, outputTokens)
+                    : null);
         }
         }
     }
-    private static IReadOnlyDictionary<string, object?> BuildPayload(ModelExecutionRequest request)
+    private IReadOnlyDictionary<string, object?> BuildPayload(ModelExecutionRequest request)
     {
         var instructions = string.IsNullOrWhiteSpace(request.TenantInstructions)
             ? request.Objective
@@ -87,16 +107,42 @@ public sealed class OpenAiResponsesModelProvider(HttpClient httpClient, OpenAiRe
             ["parallel_tool_calls"] = false
         };
         if (tools is not null) payload["tools"] = tools;
+        if (request.StructuredOutput is not null)
+            payload["text"] = new
+            {
+                format = new
+                {
+                    type = "json_schema",
+                    name = request.StructuredOutput.Name,
+                    description = request.StructuredOutput.Description,
+                    strict = true,
+                    schema = ParseSchema(request.StructuredOutput.JsonSchema)
+                }
+            };
         return payload;
     }
-    private static object BuildInput(ModelExecutionRequest request)
+    private object BuildInput(ModelExecutionRequest request)
     {
-        if (request.ToolResults.Count == 0 && request.Messages is not { Count: > 0 }) return request.Content;
+        if (request.MediaInputs is not { Count: > 0 } && request.ToolResults.Count == 0 &&
+            request.Messages is not { Count: > 0 }) return request.Content;
         var input = new List<object>();
         if (request.Messages is { Count: > 0 })
             input.AddRange(request.Messages.Select(message => (object)new
                 { role = message.Role, content = message.Content }));
-        input.Add(new { role = "user", content = request.Content });
+        if (request.MediaInputs is { Count: > 0 })
+        {
+            if (request.MediaInputs.Count > 4)
+                throw new HarnessExecutionException("media_limit_exceeded");
+            var content = new List<object> { new { type = "input_text", text = request.Content } };
+            foreach (var media in request.MediaInputs)
+            {
+                var uri = ValidateMediaUri(media);
+                content.Add(new { type = "input_image", image_url = uri.AbsoluteUri, detail = media.Detail });
+            }
+            input.Add(new { role = "user", content });
+        }
+        else
+            input.Add(new { role = "user", content = request.Content });
         foreach (var result in request.ToolResults)
         {
             if (result.Arguments.ValueKind != JsonValueKind.Object)
@@ -107,6 +153,16 @@ public sealed class OpenAiResponsesModelProvider(HttpClient httpClient, OpenAiRe
                 output = result.Output.GetRawText() });
         }
         return input;
+    }
+    private Uri ValidateMediaUri(ModelMediaInput media)
+    {
+        if (!string.Equals(media.Type, "image", StringComparison.Ordinal) ||
+            !Uri.TryCreate(media.Url, UriKind.Absolute, out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort ||
+            !string.IsNullOrEmpty(uri.UserInfo) ||
+            !options.AllowedMediaHosts.Contains(uri.Host))
+            throw new HarnessExecutionException("media_source_forbidden");
+        return uri;
     }
     private static JsonElement ParseSchema(string schema)
     {
@@ -148,6 +204,9 @@ public sealed class OpenAiResponsesModelProvider(HttpClient httpClient, OpenAiRe
         return calls;
     }
     private static string ExternalToolName(string toolId) => toolId.Replace('.', '_').Replace('-', '_');
+    private static Uri EnsureTrailingSlash(Uri endpoint) => endpoint.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
+        ? endpoint
+        : new Uri(endpoint.AbsoluteUri + "/", UriKind.Absolute);
     private static string? ReadString(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) &&
         value.ValueKind == JsonValueKind.String ? value.GetString() : null;

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using NextAZ.Harness.Runtime.ModelRouting;
 using NextAZ.Harness.Runtime.Tooling;
 namespace NextAZ.Harness.Runtime.Execution;
@@ -22,8 +21,7 @@ public sealed class BoundedAgentRuntime(IEnumerable<IModelProvider> providers, I
     private async Task<AgentExecutionResult> RunAsync(AgentExecutionRequest request, CancellationToken cancellationToken)
     {
         var results = new List<ToolResult>();
-        var seenCalls = new HashSet<string>(StringComparer.Ordinal);
-        var seenArguments = new HashSet<string>(StringComparer.Ordinal);
+        var toolCallHistory = new ToolCallHistory();
         int inputTokens = 0, outputTokens = 0;
         decimal? cost = 0;
         for (var step = 0; step < request.Configuration.Limits.MaxSteps; step++)
@@ -48,8 +46,7 @@ public sealed class BoundedAgentRuntime(IEnumerable<IModelProvider> providers, I
                 throw new HarnessExecutionException("tool_limit_exceeded");
             foreach (var call in result.ToolCalls)
             {
-                if (call.Arguments.ValueKind != JsonValueKind.Object ||
-                    !seenCalls.Add(call.CallId) || !seenArguments.Add(call.ToolId.Value + ":" + call.Arguments.GetRawText()))
+                if (!toolCallHistory.TryRegister(call))
                     throw new HarnessExecutionException("tool_call_repeated_or_invalid");
                 // Re-evaluate authorization at invocation, even if the provider ignores the advertised allowlist.
                 results.Add(await toolExecutor.ExecuteAsync(request, call, cancellationToken));
@@ -76,7 +73,7 @@ public sealed class BoundedAgentRuntime(IEnumerable<IModelProvider> providers, I
                 var input = new ModelExecutionRequest(request.Context, route, request.Agent.Objective,
                     request.Configuration.Instructions, request.Content, request.Memory, request.Tools,
                     results, request.Configuration.Limits.MaxOutputTokens, request.Messages,
-                    request.ResourceReferences);
+                    request.ResourceReferences, request.Agent.StructuredOutput, request.MediaInputs);
                 return (route, await provider.ExecuteAsync(input, timeout.Token).WaitAsync(timeout.Token));
             }
             catch (ModelProviderUnavailableException)

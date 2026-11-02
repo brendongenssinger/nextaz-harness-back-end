@@ -14,4 +14,14 @@ public sealed class InMemoryTenantAgentConfigurationRepository(IEnumerable<Tenan
         if (tenantId == Guid.Empty) throw new ArgumentException("TenantId is required.", nameof(tenantId));
         return Task.FromResult(_configurations.GetValueOrDefault((tenantId, agentId)));
     }
+    public Task<IReadOnlyList<TenantAgentConfiguration>> ListAsync(Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (tenantId == Guid.Empty) throw new ArgumentException("TenantId is required.", nameof(tenantId));
+        IReadOnlyList<TenantAgentConfiguration> result = _configurations.Values
+            .Where(configuration => configuration.TenantId == tenantId)
+            .OrderBy(configuration => configuration.AgentId.Value, StringComparer.Ordinal).ToArray();
+        return Task.FromResult(result);
+    }
 }

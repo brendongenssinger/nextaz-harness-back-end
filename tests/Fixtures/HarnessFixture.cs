@@ -59,8 +59,9 @@ internal sealed class HarnessFixture
             new InMemoryAgentRegistry([Agent]),
             new InMemoryTenantAgentConfigurationRepository(configurations ?? [Configuration]),
             Policies, memory ?? new DisabledMemoryProvider(),
-            new ConfiguredModelRouter(new Dictionary<(Guid, string), IReadOnlyList<ModelRoute>> {
-                [(TenantId, "fast-cheap")] = [new("simulation", "deterministic-v1", TimeSpan.FromSeconds(1))] }),
+            new ConfiguredModelRouter(new Dictionary<(Guid, string, int, string), IReadOnlyList<ModelRoute>> {
+                [(TenantId, Agent.AgentId.Value, Agent.Version.Value, "fast-cheap")] =
+                    [new("simulation", "deterministic-v1", TimeSpan.FromSeconds(1))] }),
             toolRegistry, runtime ?? Runtime(), Executions, Telemetry, TimeProvider.System);
     }
 }

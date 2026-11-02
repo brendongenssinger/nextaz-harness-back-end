@@ -16,8 +16,12 @@ public sealed class HarnessApiFactory : WebApplicationFactory<Program>
     public static readonly Guid TenantA = Guid.Parse("11111111-1111-1111-1111-111111111111");
     public static readonly Guid TenantB = Guid.Parse("22222222-2222-2222-2222-222222222222");
     public const string Issuer = "https://auth.harness.test";
+    private readonly bool _workflowAgentsEnabled;
     private readonly RSA _rsa = RSA.Create(2048);
     private RsaSecurityKey Key => new(_rsa) { KeyId = "test-only" };
+    public HarnessApiFactory() : this(true) { }
+    internal HarnessApiFactory(bool workflowAgentsEnabled) =>
+        _workflowAgentsEnabled = workflowAgentsEnabled;
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -27,6 +31,23 @@ public sealed class HarnessApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Harness:Imobiliaria:Enabled", "true");
         builder.UseSetting("Harness:Imobiliaria:TenantIds:0", TenantA.ToString());
         builder.UseSetting("Harness:Imobiliaria:TenantIds:1", TenantB.ToString());
+        builder.UseSetting("Harness:Cartorio:Enabled", "true");
+        builder.UseSetting("Harness:Cartorio:TenantIds:0", TenantA.ToString());
+        builder.UseSetting("Harness:Cartorio:TenantIds:1", TenantB.ToString());
+        builder.UseSetting("Harness:Cartorio:AgentFramework:Enabled", "true");
+        builder.UseSetting("Harness:Cartorio:AgentFramework:TenantIds:0", TenantB.ToString());
+        builder.UseSetting("Harness:WhatsAppTemplates:Enabled", "true");
+        builder.UseSetting("Harness:WhatsAppTemplates:TenantIds:0", TenantA.ToString());
+        builder.UseSetting("Harness:WhatsAppTemplates:AgentFramework:Enabled", "true");
+        builder.UseSetting("Harness:WhatsAppTemplates:AgentFramework:TenantIds:0", TenantA.ToString());
+        builder.UseSetting("Authentication:WhatsAppTemplateClientIds:0", "nextaz-funcionario-digital-harness");
+        builder.UseSetting("Authentication:ReceiptClassifierClientIds:0", "nextaz-funcionario-digital-harness");
+        builder.UseSetting("Harness:Receipts:Enabled", "true");
+        builder.UseSetting("Harness:Receipts:TenantIds:0", TenantA.ToString());
+        builder.UseSetting("Harness:Cartorio:WorkflowAgents:Enabled",
+            _workflowAgentsEnabled.ToString());
+        builder.UseSetting("Harness:Cartorio:WorkflowAgents:TenantIds:0", TenantA.ToString());
+        builder.UseSetting("Harness:Cartorio:WorkflowAgents:TenantIds:1", TenantB.ToString());
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Authentication:Authority"] = Issuer,
@@ -37,6 +58,22 @@ public sealed class HarnessApiFactory : WebApplicationFactory<Program>
             ["Harness:Imobiliaria:Enabled"] = "true",
             ["Harness:Imobiliaria:TenantIds:0"] = TenantA.ToString(),
             ["Harness:Imobiliaria:TenantIds:1"] = TenantB.ToString()
+            , ["Harness:Cartorio:Enabled"] = "true"
+            , ["Harness:Cartorio:TenantIds:0"] = TenantA.ToString()
+            , ["Harness:Cartorio:TenantIds:1"] = TenantB.ToString()
+            , ["Harness:Cartorio:AgentFramework:Enabled"] = "true"
+            , ["Harness:Cartorio:AgentFramework:TenantIds:0"] = TenantB.ToString()
+            , ["Harness:WhatsAppTemplates:Enabled"] = "true"
+            , ["Harness:WhatsAppTemplates:TenantIds:0"] = TenantA.ToString()
+            , ["Harness:WhatsAppTemplates:AgentFramework:Enabled"] = "true"
+            , ["Harness:WhatsAppTemplates:AgentFramework:TenantIds:0"] = TenantA.ToString()
+            , ["Authentication:WhatsAppTemplateClientIds:0"] = "nextaz-funcionario-digital-harness"
+            , ["Authentication:ReceiptClassifierClientIds:0"] = "nextaz-funcionario-digital-harness"
+            , ["Harness:Receipts:Enabled"] = "true"
+            , ["Harness:Receipts:TenantIds:0"] = TenantA.ToString()
+            , ["Harness:Cartorio:WorkflowAgents:Enabled"] = _workflowAgentsEnabled.ToString()
+            , ["Harness:Cartorio:WorkflowAgents:TenantIds:0"] = TenantA.ToString()
+            , ["Harness:Cartorio:WorkflowAgents:TenantIds:1"] = TenantB.ToString()
         }));
         builder.ConfigureTestServices(services => services.AddDataProtection().UseEphemeralDataProtectionProvider());
         builder.ConfigureTestServices(services =>

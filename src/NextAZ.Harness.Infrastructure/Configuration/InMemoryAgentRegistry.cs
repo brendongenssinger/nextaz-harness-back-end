@@ -12,4 +12,11 @@ public sealed class InMemoryAgentRegistry(IEnumerable<AgentDefinition> agents) :
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(_agents.GetValueOrDefault(agentId));
     }
+    public Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<AgentDefinition> result = _agents.Values
+            .OrderBy(agent => agent.AgentId.Value, StringComparer.Ordinal).ToArray();
+        return Task.FromResult(result);
+    }
 }

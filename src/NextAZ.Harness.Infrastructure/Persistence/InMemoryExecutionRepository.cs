@@ -1,9 +1,12 @@
 using NextAZ.Harness.Application.Abstractions;
+using NextAZ.Harness.Application.Administration;
+using NextAZ.Harness.Contracts.Administration;
 using NextAZ.Harness.Contracts.Events;
 using NextAZ.Harness.Domain.Executions;
 namespace NextAZ.Harness.Infrastructure.Persistence;
 // Development/test adapter only. State transitions mirror the durable fencing contract.
-public sealed class InMemoryExecutionRepository(int capacity = 1000, TimeProvider? timeProvider = null) : IExecutionRepository
+public sealed class InMemoryExecutionRepository(int capacity = 1000, TimeProvider? timeProvider = null) :
+    IExecutionRepository, IHarnessUsageReader
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly object _gate = new();
@@ -84,6 +87,31 @@ public sealed class InMemoryExecutionRepository(int capacity = 1000, TimeProvide
     {
         ValidateTenant(tenantId);
         lock (_gate) return _auditEvents.Where(x => x.TenantId == tenantId).ToArray();
+    }
+    public Task<HarnessUsageReport> ReadAsync(Guid tenantId, DateTimeOffset fromUtc,
+        DateTimeOffset toUtc, string costCurrency, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PostgresHarnessUsageReader.Validate(tenantId, fromUtc, toUtc, costCurrency);
+        lock (_gate)
+        {
+            var rows = _items.Values
+                .Where(execution => execution.Context.TenantId == tenantId &&
+                    execution.StartedAt >= fromUtc && execution.StartedAt < toUtc)
+                .Select(execution => new HarnessUsageRow(
+                    execution.Context.AgentId.Value,
+                    execution.Context.AgentVersion.Value,
+                    execution.Context.Operation,
+                    execution.Status.ToString(),
+                    execution.ProviderId,
+                    execution.ModelId,
+                    execution.InputTokens,
+                    execution.OutputTokens,
+                    execution.EstimatedCost))
+                .ToArray();
+            return Task.FromResult(HarnessUsageAggregation.Build(
+                tenantId, fromUtc, toUtc, costCurrency, rows));
+        }
     }
     private static void ValidateNew(ExecutionSnapshot execution)
     {

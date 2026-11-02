@@ -11,6 +11,12 @@ public sealed class EmployeeCurrentTenant(HttpCurrentTenant inner, IHttpContextA
             var permissions = inner.Permissions.ToHashSet(StringComparer.Ordinal);
             if (accessor.HttpContext?.User is { } user && HarnessServiceClaims.CanDraft(user, configuration))
                 permissions.UnionWith(["harness.execute", "harness.employee-drafts"]);
+            if (accessor.HttpContext?.User is { } templateUser &&
+                HarnessServiceClaims.CanGenerateWhatsAppTemplate(templateUser, configuration))
+                permissions.UnionWith(["harness.execute", "whatsapp.templates.generate"]);
+            if (accessor.HttpContext?.User is { } receiptUser &&
+                HarnessServiceClaims.CanClassifyReceipt(receiptUser, configuration))
+                permissions.UnionWith(["harness.execute", "receipts.classify"]);
             return permissions.ToFrozenSet();
         }
     }

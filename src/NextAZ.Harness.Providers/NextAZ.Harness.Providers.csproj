@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../NextAZ.Harness.Runtime/NextAZ.Harness.Runtime.csproj" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.24.0" />
   </ItemGroup>
 
 </Project>

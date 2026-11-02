@@ -27,6 +27,8 @@ public sealed class HttpCurrentTenant(IHttpContextAccessor accessor) : ICurrentT
             }
             if (user?.Identity?.IsAuthenticated == true && HasImobiliariaAccess(user))
                 permissions.UnionWith(["harness.read", "harness.execute"]);
+            if (user?.Identity?.IsAuthenticated == true && HasCartorioAccess(user))
+                permissions.UnionWith(["harness.read", "harness.execute"]);
             return permissions.ToFrozenSet();
         }
     }
@@ -35,4 +37,7 @@ public sealed class HttpCurrentTenant(IHttpContextAccessor accessor) : ICurrentT
     private static bool HasImobiliariaAccess(System.Security.Claims.ClaimsPrincipal user) =>
         user.FindAll("product").Select(c => c.Value).SequenceEqual(["nextaz-imobiliaria"]) &&
         HarnessSecurity.HasImobiliariaServiceAccess(user);
+    private static bool HasCartorioAccess(System.Security.Claims.ClaimsPrincipal user) =>
+        user.FindAll("product").Select(c => c.Value).SequenceEqual(["nextaz-cartorio"]) &&
+        HarnessSecurity.HasCartorioServiceAccess(user);
 }

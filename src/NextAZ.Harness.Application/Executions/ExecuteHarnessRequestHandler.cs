@@ -38,7 +38,8 @@ public sealed class ExecuteHarnessRequestHandler(ICurrentTenant tenant, IAgentRe
             await configurations.GetAsync(tenant.TenantId, agentId, cancellationToken);
         if (configuration is null) return Reject("tenant_agent_not_configured");
         var fingerprint = ExecutionRequestFingerprint.Compute(request, agent, configuration,
-            command.Profile?.Messages, command.ResourceReferences);
+            command.Profile?.Messages, command.ResourceReferences, command.TrustedOrigin,
+            command.MediaInputs);
 
         var now = time.GetUtcNow();
         var context = previous?.Context ?? new HarnessContext(tenant.TenantId, agentId, agent.Version, proposedId,
@@ -86,7 +87,8 @@ public sealed class ExecuteHarnessRequestHandler(ICurrentTenant tenant, IAgentRe
                 memoryContext.KnowledgeBaseId != configuration.KnowledgeBaseId)
                 throw new HarnessExecutionException("memory_scope_mismatch");
             Step("context.loaded");
-            var routes = await router.ResolveAsync(tenant.TenantId, configuration.ModelPolicy, timeout.Token);
+            var routes = await router.ResolveAsync(tenant.TenantId, agent.AgentId, agent.Version,
+                configuration.ModelPolicy, timeout.Token);
             Step("model.route.resolved");
             if (command.Profile?.SimulationOnly == true &&
                 (routes.Count == 0 || routes.Any(r => r.ProviderId != "simulation")))
@@ -97,7 +99,8 @@ public sealed class ExecuteHarnessRequestHandler(ICurrentTenant tenant, IAgentRe
             Step("tools.authorized"); Step("runtime.started");
             var result = await runtime.ExecuteAsync(new(context, agent, configuration,
                 tenant.Permissions, request.Content, memoryContext, routes, allowedTools, Step,
-                command.Profile?.Messages, command.ResourceReferences), timeout.Token).WaitAsync(timeout.Token);
+                command.Profile?.Messages, command.ResourceReferences, command.MediaInputs),
+                timeout.Token).WaitAsync(timeout.Token);
             content = result.Content;
             snapshot = snapshot with { Status = AgentExecutionStatus.Completed, ProviderId = result.ProviderId,
                 ModelId = result.ModelId, InputTokens = result.InputTokens, OutputTokens = result.OutputTokens,

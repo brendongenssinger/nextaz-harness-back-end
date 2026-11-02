@@ -3,12 +3,15 @@ using System.Text;
 using NextAZ.Harness.Contracts.Executions;
 using NextAZ.Harness.Domain.Agents;
 using NextAZ.Harness.Domain.Conversations;
+using NextAZ.Harness.Runtime.ModelRouting;
 namespace NextAZ.Harness.Application.Executions;
 internal static class ExecutionRequestFingerprint
 {
     public static string Compute(HarnessRequest request, AgentDefinition agent,
         TenantAgentConfiguration configuration, IReadOnlyList<ConversationMessage>? messages,
-        IReadOnlyDictionary<string, string>? resourceReferences)
+        IReadOnlyDictionary<string, string>? resourceReferences,
+        TrustedExecutionOrigin? trustedOrigin = null,
+        IReadOnlyList<ModelMediaInput>? mediaInputs = null)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         void Add(string name, string? value)
@@ -32,6 +35,26 @@ internal static class ExecutionRequestFingerprint
         foreach (var pair in (resourceReferences ?? new Dictionary<string, string>())
             .OrderBy(x => x.Key, StringComparer.Ordinal))
             Add("resource:" + pair.Key, pair.Value);
+        if (mediaInputs is not null)
+            for (var index = 0; index < mediaInputs.Count; index++)
+            {
+                Add($"media:{index}:type", mediaInputs[index].Type);
+                Add($"media:{index}:url", mediaInputs[index].Url);
+                Add($"media:{index}:detail", mediaInputs[index].Detail);
+            }
+        if (trustedOrigin is not null)
+        {
+            Add("origin:source", trustedOrigin.Source);
+            Add("origin:actor-type", trustedOrigin.ActorType);
+            Add("origin:actor-id", trustedOrigin.ActorId);
+            Add("origin:workflow-id", trustedOrigin.WorkflowId.ToString("D"));
+            Add("origin:workflow-version", trustedOrigin.WorkflowVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+            Add("origin:run-id", trustedOrigin.RunId.ToString("D"));
+            Add("origin:step-id", trustedOrigin.StepId);
+            Add("origin:conversation-id", trustedOrigin.ConversationId.ToString("D"));
+            Add("origin:solicitacao-id", trustedOrigin.SolicitacaoId?.ToString("D"));
+        }
         if (messages is not null)
             for (var index = 0; index < messages.Count; index++)
             {
